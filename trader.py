@@ -3,12 +3,10 @@ import json
 from binance.client import Client
 from binance.exceptions import BinanceAPIException
 from config import BINANCE_API_KEY, BINANCE_API_SECRET
-# from config import BINANCE_API_KEY1, BINANCE_API_SECRET1
 from account_positions import get_account_status
 import time
 
 client = Client(api_key=BINANCE_API_KEY, api_secret=BINANCE_API_SECRET)
-# client = Client(api_key=BINANCE_API_KEY1, api_secret=BINANCE_API_SECRET1, testnet=True)
 REDIS_KEY = "trading_records"
 
 TP_SL_TYPES = {
@@ -118,16 +116,18 @@ def _cancel_tp_sl(symbol, position_side, cancel_sl=True, cancel_tp=True):
 
     for o in algo_orders:
         if o.get("positionSide") == position_side and o.get("orderType") in types_to_cancel:
-            cancel_algo_order(algoId=o.get("algoId"), clientAlgoId=o.get("clientAlgoId"))
+            cancel_algo_order(symbol=symbol, algoId=o.get("algoId"), clientAlgoId=o.get("clientAlgoId"))
 
 
 def _place_tp_sl(symbol, position_side, sl=None, tp=None):
     """
     下止损/止盈单（支持条件单）
+    返回下单结果列表
     """
+    results = []
     if sl:
         try:
-            client.futures_create_order(
+            order = client.futures_create_order(
                 symbol=symbol,
                 side="SELL" if position_side == "LONG" else "BUY",
                 positionSide=position_side,
@@ -137,12 +137,13 @@ def _place_tp_sl(symbol, position_side, sl=None, tp=None):
                 timeInForce="GTC"
             )
             print(f"🛑 设置止损条件单成功 {symbol}: {sl}")
+            results.append(order)
         except Exception as e:
             print(f"⚠ 止损条件单下单失败 {symbol}: {e}")
 
     if tp:
         try:
-            client.futures_create_order(
+            order = client.futures_create_order(
                 symbol=symbol,
                 side="SELL" if position_side == "LONG" else "BUY",
                 positionSide=position_side,
@@ -152,23 +153,22 @@ def _place_tp_sl(symbol, position_side, sl=None, tp=None):
                 timeInForce="GTC"
             )
             print(f"🎯 设置止盈条件单成功 {symbol}: {tp}")
+            results.append(order)
         except Exception as e:
             print(f"⚠ 止盈条件单下单失败 {symbol}: {e}")
 
+    return results
 
 def _update_tp_sl(symbol, position_side, sl=None, tp=None):
     """
     更新止盈止损：
-    - 先取消该方向已有 TP/SL（基础单 + 条件单）
-    - 再下新单
-    - 避免 -4130 错误
+    - 先取消已有 TP/SL
+    - 下新单
+    返回订单对象列表
     """
-    # 先取消已有对应类型单
     _cancel_tp_sl(symbol, position_side, cancel_sl=bool(sl), cancel_tp=bool(tp))
     time.sleep(1)  # 等待 Binance 处理旧订单
-
-    # 下新 TP/SL 条件单
-    _place_tp_sl(symbol, position_side, sl, tp)
+    return _place_tp_sl(symbol, position_side, sl, tp)
 
 # ===============================
 # 主交易执行
@@ -208,7 +208,7 @@ def execute_trade(symbol: str, action: str, stop_loss=None, take_profit=None,
             qty = _normalize_qty(symbol, qty)
 
             # 检查最小下单金额
-            min_notional = max(get_min_notional(symbol), 20)  # 不低于 20 USDT
+            min_notional = get_min_notional(symbol)
             if qty * mark < min_notional:
                 qty = _normalize_qty(symbol, min_notional / mark)
                 print(f"⚠ {symbol} 金额过小 → 自动提升至最小金额，下单数量调整为 {qty}")
@@ -297,13 +297,15 @@ def execute_trade(symbol: str, action: str, stop_loss=None, take_profit=None,
         elif action == "update_stop_loss":
             if pos:
                 side = "LONG" if pos["size"] > 0 else "SHORT"
-                _update_tp_sl(symbol, side, sl=stop_loss, tp=None)
+                orders = _update_tp_sl(symbol, side, sl=stop_loss, tp=None)
+                return orders if orders else None
             return None
 
         elif action == "update_take_profit":
             if pos:
                 side = "LONG" if pos["size"] > 0 else "SHORT"
-                _update_tp_sl(symbol, side, sl=None, tp=take_profit)
+                orders = _update_tp_sl(symbol, side, sl=None, tp=take_profit)
+                return orders if orders else None
             return None
 
         else:

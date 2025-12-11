@@ -162,13 +162,13 @@
 **排序规则：按priority字段排序（HIGH > MEDIUM > LOW），同优先级按confidence降序**
 
 字段使用说明：
--	position_size：仓位价值
+-	position_size：仓位价值多少USDT
 
 不同动作的必填字段：
 1.open_long/open_short: entry, position_size, stop_loss, take_profit必填
-2.increase_position/decrease_position: position_size 必填
+2.increase_position/decrease_position: position_size 必填,注意这里的position_size是金额,不是数量,加减仓的时候用USDT金额输出
 3.update_stop_loss: stop_loss必填
-4.update_take_profit: take_profit必填
+4.update_take_profit: take_profit 必填
 5.close_*/hold/wait: 只需symbol, action, reason
 
 输出示例：
@@ -178,7 +178,7 @@
     "symbol": "BTCUSDT",
     "action": "open_long",
     "entry": 68050,
-    "position_size": 0.02,
+    "position_size": 100,
     "stop_loss": 67500,
     "take_profit": 69500,
     "confidence": 0.85,
